@@ -1,12 +1,12 @@
 import streamlit as st
 from typing import List, Tuple
 
-# Type aliases for clarity
-Profile = Tuple[int, int]  # (lengte in mm, aantal)
+# Type aliases
+Profile = Tuple[int, int]           # (lengte in mm, aantal)
 ZaagLijstItem = Tuple[List[int], int]  # (lijst met stukken, aantal keer dit patroon)
 
 
-def zaaglijst_berekenen(profielen: List[Profile], zaag_lengte: int) -> Tuple[List[ZaagLijstItem], int, int]:
+def zaaglijst_berekenen(profielen: List[Profile], zaag_lengte: int) -> Tuple[List[ZaagLijstItem], int, int, int]:
     """
     Bereken een geoptimaliseerde zaaglijst op basis van de ingevoerde profielen en de beschikbare zaaglengte.
 
@@ -15,10 +15,11 @@ def zaaglijst_berekenen(profielen: List[Profile], zaag_lengte: int) -> Tuple[Lis
         zaag_lengte (int): De lengte van het zaagprofiel in mm.
 
     Returns:
-        Tuple[List[ZaagLijstItem], int, int]:
-            - De geoptimaliseerde zaaglijst als een lijst van tuples (lijst van stukken, aantal keer dit patroon).
-            - Het restmateriaal in mm van de laatst gebruikte zaagprofiel.
-            - Het totaal aantal gebruikte zaagprofielen.
+        Tuple:
+            - geoptimaliseerde zaaglijst als een lijst van tuples (lijst van stukken, aantal keer dit patroon)
+            - restmateriaal van het laatste profiel in mm
+            - totaal aantal gebruikte zaagprofielen
+            - totaal restmateriaal (afval) van alle profielen in mm
     """
     # Maak een lijst van alle individuele stukken op basis van de profielen
     zaag_stukken = []
@@ -27,14 +28,14 @@ def zaaglijst_berekenen(profielen: List[Profile], zaag_lengte: int) -> Tuple[Lis
 
     # Sorteer de stukken in aflopende volgorde
     zaag_stukken.sort(reverse=True)
-    gebruikte_zaagprofielen = []  # Elk item is een lijst van stukken die in één zaagprofiel passen
+    gebruikte_zaagprofielen = []  # Lijst met lijsten, elk profiel bevat de stukken die erin geplaatst zijn
 
     # Greedy algoritme: vul telkens een nieuw zaagprofiel
     while zaag_stukken:
         huidig_profiel = []
         resterende_lengte = zaag_lengte
 
-        # Loop over een kopie van de lijst, zodat we veilig items kunnen verwijderen
+        # Loop over een kopie van de lijst om veilig items te verwijderen
         for stuk in zaag_stukken[:]:
             if stuk <= resterende_lengte:
                 huidig_profiel.append(stuk)
@@ -43,8 +44,11 @@ def zaaglijst_berekenen(profielen: List[Profile], zaag_lengte: int) -> Tuple[Lis
 
         gebruikte_zaagprofielen.append(huidig_profiel)
 
-    # Bereken restmateriaal van het laatste profiel
+    # Bereken het restmateriaal van het laatste profiel (indien aanwezig)
     restmateriaal = zaag_lengte - sum(gebruikte_zaagprofielen[-1]) if gebruikte_zaagprofielen else zaag_lengte
+
+    # Bereken het totale restmateriaal (afval) van alle profielen
+    totaal_afval = sum(zaag_lengte - sum(profiel) for profiel in gebruikte_zaagprofielen)
 
     # Groepeer profielen met hetzelfde patroon
     geoptimaliseerde_zaaglijst: List[ZaagLijstItem] = []
@@ -64,13 +68,14 @@ def zaaglijst_berekenen(profielen: List[Profile], zaag_lengte: int) -> Tuple[Lis
         geoptimaliseerde_zaaglijst.append((vorige_profiel, aantal_gelijk))
 
     totaal_zaagprofielen = len(gebruikte_zaagprofielen)
-    return geoptimaliseerde_zaaglijst, restmateriaal, totaal_zaagprofielen
+    return geoptimaliseerde_zaaglijst, restmateriaal, totaal_zaagprofielen, totaal_afval
 
 
 def generate_export_content(
     zaaglijst: List[ZaagLijstItem],
     totaal_zaagprofielen: int,
     restmateriaal: int,
+    totaal_afval: int,
     profielen: List[Profile],
     totale_lengte_meters: float
 ) -> str:
@@ -80,7 +85,8 @@ def generate_export_content(
     Args:
         zaaglijst (List[ZaagLijstItem]): De geoptimaliseerde zaaglijst.
         totaal_zaagprofielen (int): Totaal aantal benodigde zaagprofielen.
-        restmateriaal (int): Overgebleven materiaal in mm.
+        restmateriaal (int): Restmateriaal van het laatste profiel in mm.
+        totaal_afval (int): Totaal restmateriaal van alle profielen in mm.
         profielen (List[Profile]): De ingevoerde profielen.
         totale_lengte_meters (float): Totale lengte van alle profielen in meters.
 
@@ -97,44 +103,30 @@ def generate_export_content(
     
     content += f"\nTotaal aantal benodigde zaagprofielen: {totaal_zaagprofielen}\n"
     content += f"Totaal lengte in meters: {totale_lengte_meters:.2f} m\n"
-    content += f"Restmateriaal: {restmateriaal} mm\n"
+    content += f"Restmateriaal van laatste profiel: {restmateriaal} mm\n"
+    content += f"Totaal restmateriaal (afval): {totaal_afval} mm\n"
     return content
 
 
 def display_profielen(profielen: List[Profile]) -> List[Profile]:
     """
     Toon de huidige lijst met toegevoegde profielen met een optie om elk profiel te verwijderen.
-
-    Args:
-        profielen (List[Profile]): De lijst van profielen.
-
-    Returns:
-        List[Profile]: De bijgewerkte lijst van profielen.
     """
     st.subheader("Toegevoegde Profielen")
-    new_profielen = []
+    nieuwe_profielen = []
     for idx, (lengte, aantal) in enumerate(profielen):
         cols = st.columns([3, 1])
         cols[0].write(f"Lengte: {lengte} mm, Aantal: {aantal}")
-        # Een unieke sleutel voor elke verwijderknop
         if cols[1].button("Verwijder", key=f"remove_{idx}"):
             st.info(f"Profiel met lengte {lengte} mm verwijderd.")
-            continue  # Sla dit profiel over zodat het niet wordt toegevoegd aan de nieuwe lijst
-        new_profielen.append((lengte, aantal))
-    return new_profielen
+            continue  # Sla dit profiel over
+        nieuwe_profielen.append((lengte, aantal))
+    return nieuwe_profielen
 
 
 def add_profiel(profielen: List[Profile], lengte: int, aantal: int) -> List[Profile]:
     """
     Voeg een profiel toe aan de lijst.
-
-    Args:
-        profielen (List[Profile]): Huidige lijst van profielen.
-        lengte (int): De lengte van het profiel in mm.
-        aantal (int): Het aantal stuks.
-
-    Returns:
-        List[Profile]: Bijgewerkte lijst met het toegevoegde profiel.
     """
     profielen.append((lengte, aantal))
     st.success(f"Profiel van lengte {lengte} mm en aantal {aantal} is toegevoegd.")
@@ -144,7 +136,7 @@ def add_profiel(profielen: List[Profile], lengte: int, aantal: int) -> List[Prof
 def main():
     st.title("Zaaglijst Berekening")
 
-    # Initialiseer profielen in session_state als dat nog niet gebeurd is
+    # Initialiseer de profielen als ze nog niet bestaan in session_state
     if "profielen" not in st.session_state:
         st.session_state.profielen = []  # type: List[Profile]
 
@@ -155,13 +147,11 @@ def main():
         submit_button = st.form_submit_button("Voeg profiel toe")
 
         if submit_button:
-            # Voeg profiel toe als waarden geldig zijn
             if lengte > 0 and aantal > 0:
                 st.session_state.profielen = add_profiel(st.session_state.profielen, lengte, aantal)
             else:
                 st.error("Lengte en aantal moeten groter zijn dan 0.")
 
-    # Toon de huidige lijst met profielen met de mogelijkheid om te verwijderen
     if st.session_state.profielen:
         st.session_state.profielen = display_profielen(st.session_state.profielen)
     else:
@@ -173,12 +163,10 @@ def main():
     if st.button("Bereken Zaaglijst"):
         if st.session_state.profielen and zaag_lengte > 0:
             try:
-                # Bereken de geoptimaliseerde zaaglijst
-                zaaglijst, restmateriaal, totaal_zaagprofielen = zaaglijst_berekenen(
+                zaaglijst, restmateriaal, totaal_zaagprofielen, totaal_afval = zaaglijst_berekenen(
                     st.session_state.profielen, zaag_lengte
                 )
 
-                # Bereken de totale lengte in meters van alle toegevoegde profielen
                 totale_lengte = sum(lengte * aantal for lengte, aantal in st.session_state.profielen)
                 totale_lengte_meters = totale_lengte / 1000
 
@@ -188,11 +176,12 @@ def main():
 
                 st.write(f"Totaal aantal benodigde zaagprofielen: {totaal_zaagprofielen}")
                 st.write(f"Totaal lengte in meters: {totale_lengte_meters:.2f} m")
-                st.write(f"Restmateriaal: {restmateriaal} mm")
+                st.write(f"Restmateriaal van laatste profiel: {restmateriaal} mm")
+                st.write(f"Totaal restmateriaal (afval): {totaal_afval} mm")
 
-                # Genereer exportinhoud en bied download aan
                 content = generate_export_content(
-                    zaaglijst, totaal_zaagprofielen, restmateriaal, st.session_state.profielen, totale_lengte_meters
+                    zaaglijst, totaal_zaagprofielen, restmateriaal, totaal_afval,
+                    st.session_state.profielen, totale_lengte_meters
                 )
                 st.download_button(
                     label="Exporteer naar TXT",
